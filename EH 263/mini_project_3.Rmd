@@ -1,0 +1,360 @@
+---
+title: "Mini Project 3"
+author: "Amanda Hernandez"
+date: '2022-10-25'
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(pacman)
+p_load(tidyverse)
+p_load(janitor)
+p_load(lubridate)
+p_load(broom)
+p_load(viridis)
+p_load(gtsummary)
+
+```
+
+
+## Q1
+
+### Load and Clean Data
+
+```{r message=FALSE, warning=FALSE}
+
+#######################################################
+# HOBO DATA  #########################################
+#######################################################
+# load in raw data
+hobo_raw <- read_csv("hobo_dat/EH263-H11.csv", skip = 1)
+
+
+# clean up dataset 
+hobo_clean <- hobo_raw %>% 
+  #clean up column names
+  clean_names() %>% 
+  rename_all(~str_remove_all(., "_lgr.*")) %>% 
+  rename_with(~"date_time", contains("date_time")) %>% 
+  #drop remaining columns
+  select(number:rh_percent) %>% 
+  #add some new date/time columns to help with later merges
+  mutate(date_time = mdy_hms(date_time),
+         date = ymd(str_remove_all(as.character(date_time), "\\d*:\\d*:\\d*")),
+         month = month(date_time),
+         day = day(date_time),
+         hour = hour(date_time),
+         minute = minute(date_time)) %>% 
+  # filter to measurements within pre-determined study period 
+  filter(date_time > mdy_hms("10-05-22 06:40:00") & date_time < mdy_hms("10-11-22 12:00:00"))
+
+
+
+#make data long for iterative graphing and statistical tests
+hobo_long <- hobo_clean %>% 
+  pivot_longer(names_to = "metric", values_to = "indoor_value", temp_f:rh_percent) %>% 
+  mutate(metric = factor(metric, levels = c("temp_f", "rh_percent"),
+                         labels = c("Temperature (F)", "Relative Humidity (%)")))
+
+
+##########################################################
+# ACTIVITY LOG  #########################################
+##########################################################
+
+
+#load in activity log 
+activity <- read_csv("activity_log.csv") %>% 
+  rownames_to_column("event_no") %>%
+  #add/modify some date/time columns to help with merge
+  mutate(date = mdy(date), 
+         start_time = force_tz(as_datetime(paste(date, start_time)), tzone = "EST"),
+         end_time =force_tz(as_datetime(paste(date, end_time)), tzone = "EST"),
+         intrvl = interval(start_time, end_time)) #%>% 
+
+hobo_activity <- hobo_long %>% 
+  #ensure that date_time is read as EST 
+  mutate(date_time = force_tz(as_datetime(date_time), tzone = "EST")) %>% 
+  #merge in activity data by date -- this is going to duplicate some rows unnecessarily, we'll deal with that later... 
+  left_join(activity, 
+            by = c("date")) %>% 
+  #create column that checks to see if date_time is in interval of activity/event
+  mutate(activity_status = case_when(date_time %within% intrvl ~ "Y",
+                             TRUE ~ "N")) 
+
+#pull out just activity events (measurements that fell during an activity/event)
+hobo_act_events <- hobo_activity %>% 
+  filter(activity_status == "Y")
+
+hobo_activity_all <- hobo_activity %>% 
+  #drop the measurements that fall during an activity/event
+  filter(!number %in% hobo_act_events$number) %>% 
+  #drop activity columns
+  select(-c(event_no:intrvl)) %>% 
+  #drop duplicated columns
+  unique() %>% 
+  #bring back in the activity/events dataset
+  bind_rows(hobo_act_events) %>% 
+  mutate(cooking = case_when(cooking == "y" ~ "Cooking event",
+                             TRUE ~ "No cooking event"),
+         kettle = case_when(kettle == "y" ~ "Kettle on",
+                            TRUE ~ "Kettle off"))
+
+
+
+##########################################################
+# WEATHER DATA  #########################################
+#########################################################
+
+weather <- readxl::read_xlsx("weather.xlsx") %>% 
+  mutate(time = hms(str_extract(as.character(Time), "\\d*:\\d*:\\d*")),
+         date_time = ymd_hms(paste0(Date, " ", str_extract(as.character(Time), "\\d*:\\d*:\\d*"))),
+         month = month(date_time),
+         day = day(date_time),
+         hour = hour(date_time),
+         Temperature = as.numeric(str_extract(Temperature, "\\d*")),
+         Humidity = as.numeric(str_extract(Humidity, "\\d*"))) %>% 
+  select(date_time, Date, time:hour, Temperature, Humidity) 
+
+
+weather_long <- weather %>% 
+  pivot_longer(names_to = "metric", values_to = "outdoor_value", Temperature:Humidity) %>% 
+  mutate(metric = factor(metric, levels = c("Temperature", "Humidity"),
+                         labels = c("Temperature (F)", "Relative Humidity (%)")))
+
+indoor_outdoor <- hobo_long %>% 
+  group_by(month, day, hour, metric) %>%
+  #create hourly average indoor temperature before matching to hourly weather data
+  summarize(indoor_value = mean(indoor_value)) %>%
+  #join with weather data by hour
+  left_join(weather_long %>% 
+              select(-date_time, -time, -Date), 
+            by = c("month", "day", "hour", "metric"))
+
+
+
+
+########################################################
+# CLASS HOBO  #########################################
+########################################################
+
+class_hobo <- read_csv("20052699_PILOT.csv", skip = 1) %>% 
+  clean_names() %>% 
+  rename_all(~str_remove_all(., "_lgr.*")) %>% 
+  rename_with(~"date_time", contains("date_time")) %>% 
+  select(date_time:co2_ppm) %>% 
+  mutate(date_time = mdy_hms(date_time))
+
+
+
+```
+
+### Data Exploration
+
+```{r message=FALSE, warning=FALSE}
+
+#check for gaps
+hobo_gaps <- hobo_clean %>% 
+  mutate(rec_after = lead(date_time, order_by = date_time, 
+                          default = max(date_time)),
+         intrvl = as.duration(interval(date_time, rec_after)))
+
+table(as.character(hobo_gaps$intrvl), useNA = "ifany")
+#all lag = 1M 0S, 1 0S for last measurement -- all good!
+
+#plot data
+ggplot(hobo_long,
+       aes(x = date_time, y = indoor_value, color = metric)) +
+  geom_line() + 
+  scale_color_viridis(discrete = TRUE, end = 0.75, direction = -1) + 
+  scale_x_datetime(labels = scales::date_format("%m/%d")) + 
+  theme_bw() + 
+  xlab("Date") + 
+  ylab("") + 
+  theme(legend.position = "none", 
+        axis.text = element_text(size=14),
+        strip.text = element_text(size = 16, face = "bold")) + 
+  facet_wrap(~metric, scales = "free_y", nrow = 2)
+  
+
+ggplot(hobo_long, aes(x = indoor_value)) +
+  geom_histogram(aes(y = ..density..),
+                 color = "black",
+                 fill = "white",
+                 bins = 30) +
+  geom_density(fill = "red", alpha = 0.25) +
+  facet_wrap(~metric, scales = "free")
+
+
+```
+
+## Q2
+
+```{r message = FALSE, warning = FALSE}
+
+gtsummary::tbl_summary(hobo_long, by = metric,
+                       include = c("indoor_value"), 
+                       type = list(indoor_value ~ 'continuous2'),
+                       statistic = indoor_value ~ c("{median} ({min} - {max})", 
+                                                        "{mean} ({sd})"))
+
+
+ggplot(hobo_activity_all, 
+       aes(x = metric, y = indoor_value, color = metric)) + 
+  ggforce::geom_sina(width = 0.25) + 
+  geom_boxplot(width = 0.1, guides = FALSE, show.legend = FALSE,
+               outlier.shape = NA, alpha = 0.5, size = 1, color = "#3a3838") +
+  scale_color_viridis(discrete = TRUE, begin = 0.65, end = 0.85) + 
+  theme_bw() + 
+  facet_wrap(~metric, scales = "free")  
+
+
+
+```
+
+## Q3
+
+```{r message = FALSE, warning = FALSE}
+
+
+tbl_strata(data = hobo_activity_all, 
+           strata = metric,
+           .tbl_fun = ~.x %>%
+             tbl_summary(
+               by = cooking, 
+               digits = everything() ~ 2,
+               include = c("indoor_value"),
+               type = list("indoor_value" ~ 'continuous2'),
+               statistic = all_continuous() ~ c("{median} ({min} - {max})", 
+                                                "{mean} ({sd})")) %>% 
+             add_p(test = everything() ~ "wilcox.test"), 
+           .combine_with = "tbl_stack"
+)
+
+
+hobo_activity_all %>%
+  group_by(metric) %>% 
+  summarize(wilcox.test = tidy(wilcox.test(indoor_value~cooking))) %>% 
+  unnest(wilcox.test)  %>% 
+   flextable() %>% 
+  flextable::add_footer_lines(values = "Table S1: Output from Wilcoxon rank sum test with continuity correction comparing temperature and relative humidity while cooking and not cooking.")
+
+
+
+ggplot(hobo_activity_all, 
+       aes(x = cooking, y = indoor_value, color = cooking)) + 
+  ggforce::geom_sina(width = 0.25) + 
+  geom_boxplot(width = 0.1, guides = FALSE, show.legend = FALSE,
+               outlier.shape = NA, alpha = 0.5, size = 1, color = "#3a3838") +
+  scale_color_viridis(discrete = TRUE, begin = 0.25, end = 0.5) + 
+  theme_bw() + 
+  facet_wrap(~metric, scales = "free_y")  
+
+
+```
+
+## Q4
+
+```{r message = FALSE, warning = FALSE}
+
+
+tbl_strata(data = indoor_outdoor %>% 
+  pivot_longer(names_to = "in_out", values_to = "value", indoor_value:outdoor_value), 
+           strata = metric,
+           .tbl_fun = ~.x %>%
+             tbl_summary(
+               by = cooking, 
+               digits = everything() ~ 2,
+               include = c("indoor_value"),
+               type = list("indoor_value" ~ 'continuous2'),
+               statistic = all_continuous() ~ c("{median} ({min} - {max})", 
+                                                "{mean} ({sd})")) %>% 
+             add_p(test = everything() ~ "paired.wilcox.test"), 
+           .combine_with = "tbl_stack"
+)
+
+
+indoor_outdoor %>%
+  group_by(metric) %>% 
+  summarize(wilcox.test = tidy(wilcox.test(indoor_value,outdoor_value, paired = TRUE))) %>% 
+  unnest(wilcox.test) %>% 
+  flextable()%>% 
+  flextable::add_footer_lines(values = "Table S2: Output from Wilcoxon signed rank test with continuity correction comparing temperature and relative humidity indoor and outdoors.")
+
+
+
+
+```
+
+## Q5
+
+```{r message = FALSE, warning = FALSE}
+
+tbl_strata(data = hobo_activity_all, 
+           strata = metric,
+           .tbl_fun = ~.x %>%
+             tbl_summary(
+               by = kettle, 
+               digits = everything() ~ 2,
+               include = c("indoor_value"),
+               type = list("indoor_value" ~ 'continuous2'),
+               statistic = all_continuous() ~ c("{median} ({min} - {max})", 
+                                                "{mean} ({sd})")) %>% 
+             add_p(test = everything() ~ "kruskal.test"), 
+           .combine_with = "tbl_stack"
+)
+
+
+ggplot(hobo_activity_all, 
+       aes(x = kettle, y = indoor_value, color = kettle)) + 
+  ggforce::geom_sina(width = 0.25) + 
+  geom_boxplot(width = 0.1, guides = FALSE, show.legend = FALSE,
+               outlier.shape = NA, alpha = 0.5, size = 1, color = "#3a3838") +
+  scale_color_viridis(discrete = TRUE, end = 0.75) + 
+  theme_bw() + 
+  facet_wrap(~metric, scales = "free_y")  
+
+
+
+```
+
+## Q6
+
+```{r message = FALSE, warning = FALSE}
+
+
+tbl_summary(class_hobo %>% 
+              pivot_longer(names_to = "metric",values_to = "indoor_value", temp_f:co2_ppm) %>% 
+              mutate(metric = factor(metric, levels = c("temp_f", "rh_percent", "co2_ppm"),
+                                     labels = c("Temperature (F)", "Relative Humidity (%)", "CO2 (ppm)"))),
+            by = metric,
+            include = c("indoor_value"), 
+            missing = "no",
+            type = list(indoor_value ~ 'continuous2'),
+            statistic = indoor_value ~ c("{median} ({min} - {max})", 
+                                         "{mean} ({sd})"))
+
+
+
+```
+
+## Q7
+
+```{r message = FALSE, warning = FALSE}
+
+ggplot(class_hobo,
+       aes(x = date_time, y = co2_ppm)) +
+  geom_line(color = "darkseagreen") + 
+  scale_x_datetime(labels = scales::date_format("%m/%d")) + 
+  theme_bw() + 
+  xlab("Date") + 
+  ylab("") + 
+  theme(legend.position = "none", 
+        axis.text = element_text(size=14),
+        strip.text = element_text(size = 16, face = "bold")) 
+
+
+
+
+```
