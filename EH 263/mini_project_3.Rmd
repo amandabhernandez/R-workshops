@@ -120,8 +120,12 @@ weather <- readxl::read_xlsx("weather.xlsx") %>%
 
 weather_long <- weather %>% 
   pivot_longer(names_to = "metric", values_to = "outdoor_value", Temperature:Humidity) %>% 
+  select(-date_time, -time, -Date) %>% 
+  group_by(metric, month, day, hour) %>% 
+  summarize(outdoor_value = mean(outdoor_value)) %>% 
   mutate(metric = factor(metric, levels = c("Temperature", "Humidity"),
                          labels = c("Temperature (F)", "Relative Humidity (%)")))
+
 
 indoor_outdoor <- hobo_long %>% 
   group_by(month, day, hour, metric) %>%
@@ -133,6 +137,17 @@ indoor_outdoor <- hobo_long %>%
             by = c("month", "day", "hour", "metric"))
 
 
+########################################################
+# FINAL DATASET  #######################################
+########################################################
+
+#this is the submitted dataset
+hobo_final <- hobo_long %>% 
+  left_join(weather_long,
+            by = c("month", "day", "hour", "metric")) %>% 
+  left_join(hobo_activity_all %>% 
+              select(number, activity_status, event_no, cooking:intrvl) %>% 
+              unique())
 
 
 ########################################################
@@ -177,7 +192,7 @@ ggplot(hobo_long,
         strip.text = element_text(size = 16, face = "bold")) + 
   facet_wrap(~metric, scales = "free_y", nrow = 2)
   
-
+#create density plots
 ggplot(hobo_long, aes(x = indoor_value)) +
   geom_histogram(aes(y = ..density..),
                  color = "black",
@@ -193,14 +208,14 @@ ggplot(hobo_long, aes(x = indoor_value)) +
 
 ```{r message = FALSE, warning = FALSE}
 
-gtsummary::tbl_summary(hobo_long, by = metric,
+tbl_summary(hobo_long, by = metric,
                        include = c("indoor_value"), 
-                       type = list(indoor_value ~ 'continuous2'),
-                       statistic = indoor_value ~ c("{median} ({min} - {max})", 
-                                                        "{mean} ({sd})"))
+            type = list(indoor_value ~ 'continuous2'),
+            statistic = indoor_value ~ c("{median} ({min} - {max})", 
+                                         "{mean} ({sd})"))
 
-
-ggplot(hobo_activity_all, 
+#boxplot of hobo measurements
+ggplot(hobo_long, 
        aes(x = metric, y = indoor_value, color = metric)) + 
   ggforce::geom_sina(width = 0.25) + 
   geom_boxplot(width = 0.1, guides = FALSE, show.legend = FALSE,
@@ -241,7 +256,7 @@ hobo_activity_all %>%
   flextable::add_footer_lines(values = "Table S1: Output from Wilcoxon rank sum test with continuity correction comparing temperature and relative humidity while cooking and not cooking.")
 
 
-
+#boxplot of hobo measurements + cooking activity
 ggplot(hobo_activity_all, 
        aes(x = cooking, y = indoor_value, color = cooking)) + 
   ggforce::geom_sina(width = 0.25) + 
@@ -259,28 +274,56 @@ ggplot(hobo_activity_all,
 ```{r message = FALSE, warning = FALSE}
 
 
-tbl_strata(data = indoor_outdoor %>% 
-  pivot_longer(names_to = "in_out", values_to = "value", indoor_value:outdoor_value), 
-           strata = metric,
-           .tbl_fun = ~.x %>%
-             tbl_summary(
-               by = cooking, 
-               digits = everything() ~ 2,
-               include = c("indoor_value"),
-               type = list("indoor_value" ~ 'continuous2'),
-               statistic = all_continuous() ~ c("{median} ({min} - {max})", 
-                                                "{mean} ({sd})")) %>% 
-             add_p(test = everything() ~ "paired.wilcox.test"), 
-           .combine_with = "tbl_stack"
-)
-
+tbl_summary(indoor_outdoor,
+            by = metric, 
+            digits = everything() ~ 2,
+            include = c("indoor_value", "outdoor_value"),
+            type = list(c("indoor_value", "outdoor_value") ~ 'continuous2'),
+            statistic = all_continuous() ~ c("{median} ({min} - {max})", 
+                                             "{mean} ({sd})"))
 
 indoor_outdoor %>%
   group_by(metric) %>% 
-  summarize(wilcox.test = tidy(wilcox.test(indoor_value,outdoor_value, paired = TRUE))) %>% 
-  unnest(wilcox.test) %>% 
-  flextable()%>% 
-  flextable::add_footer_lines(values = "Table S2: Output from Wilcoxon signed rank test with continuity correction comparing temperature and relative humidity indoor and outdoors.")
+  summarize(spearman.test = tidy(cor.test(indoor_value,outdoor_value, method = "spearman"))) %>% 
+  unnest(spearman.test)  %>% 
+   flextable() %>% 
+  flextable::add_footer_lines(values = "Table S2: Output from Spearman rank correlation comparing temperature and relative humidity indoor and outdoors.")
+
+#scatterplot of indoor vs outdoor with spearman rho and p-value
+ggpubr::ggscatter(indoor_outdoor, x = "indoor_value", y = "outdoor_value", 
+                  facet.by = "metric", scales = "free", color = "metric", 
+                  add = "reg.line", conf.int = TRUE, 
+                  cor.coef = TRUE, cor.method = "spearman",
+                  xlab = "Indoor", ylab = "Outdoor")
+
+
+#set up full correlation matrix
+in_out_corr <- indoor_outdoor %>% 
+  pivot_wider(names_from = "metric", values_from = c("indoor_value", "outdoor_value")) 
+
+cor.matrix <- cor(in_out_corr[,4:7], method = "spearman",
+                  use = "complete.obs")
+
+get_upper_tri <- function(cormat){
+  cormat[lower.tri(cormat)]<- NA
+  return(cormat)
+}
+
+reshape2::melt(get_upper_tri(cor.matrix)) %>%
+  ggplot(aes(x=Var1, y=Var2, fill=value)) +
+  geom_tile() +
+  geom_text(aes(label = round(value,2))) +
+  scale_fill_gradient2(limit = c(-1,1), breaks = c(-1, -.75 ,-.5, -.25, 0, .25,.5, .75, 1),
+                       low = "#29af7f", high =  "#b8de29", mid = "white",
+                       name = "Cor value") +
+  scale_x_discrete(position = "top") +
+  theme(panel.background = element_rect(fill = "white"),
+        axis.text.y = element_text(size=12),
+        axis.title.x = element_text(size=14),
+        axis.title.y = element_text(size=14),
+        legend.text = element_text(size=12)) +
+  xlab("")+
+  ylab("")
 
 
 
@@ -304,6 +347,15 @@ tbl_strata(data = hobo_activity_all,
              add_p(test = everything() ~ "kruskal.test"), 
            .combine_with = "tbl_stack"
 )
+
+
+hobo_activity_all %>%
+  group_by(metric) %>% 
+  summarize(wilcox.test = tidy(wilcox.test(indoor_value~kettle))) %>% 
+  unnest(wilcox.test)  %>% 
+   flextable() %>% 
+  flextable::add_footer_lines(values = "Table S3: Output from Wilcoxon rank sum test with continuity correction comparing temperature and relative humidity while the tea kettle was on and off.")
+
 
 
 ggplot(hobo_activity_all, 
@@ -353,8 +405,6 @@ ggplot(class_hobo,
   theme(legend.position = "none", 
         axis.text = element_text(size=14),
         strip.text = element_text(size = 16, face = "bold")) 
-
-
 
 
 ```
