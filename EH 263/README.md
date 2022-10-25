@@ -92,3 +92,43 @@
       
       Other steps in this stage included plotting all the HOBO measurements from my HOBO
       and generating density plots for temperature and humidity.
+      
+      
+      
+### Data Dictionary
+
+      number == a unique ID for each HOBO measurement
+      
+      date_time == a date/time variable for each observation
+      
+      date == the date the measurement was taken
+      
+      month == the number of the month the measurement was taken in
+      
+      day == the number of the day of the month the measurement was taken in
+      
+      hour == the hour that the measurement was taken in
+      
+      minute == the minute that the measurement was taken in
+      
+      metric == either Temperature (F) or Relative Humitidy (%)
+      
+      indoor_value == the measurement provided by the HOBO for that specific metric at that date_time
+      
+      outdoor_value == the measurement retreived from wunderground for outdoor ambient temperature and        RH
+      
+      activity_status == a flag indiciating whether or not a logged activity took place when the HOBO         measurement was recorded
+      
+      event_no == a unique ID for each activity/event
+      
+      cooking == a binary indicator of whether or not a cooking event was taking place 
+      
+      kettle == a binary indicator of whether or not the kettle was on
+      
+      shower == a binary indicator of whether or not someone was showering while an event was occurring
+      
+      occupants == the number of occupants during an activity/event 
+      
+      other == field notes during activity logging
+      
+      intrvl == a interval variable that is bounded by the start and end time of the event/activity  
