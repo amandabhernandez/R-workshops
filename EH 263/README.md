@@ -52,8 +52,8 @@
       
       QA Checks: 
       - do the number of observations in the final dataframe with HOBO 
-      measurements and activities/events match the number of observations in the 
-      HOBO measurements only (hobo_long) dataframe? Yes! 
+      measurements and activities/events match the number of expected observations 
+      in the HOBO measurements (hobo_long) dataframe? Yes! 
       - spot checks: does the measurement fall within the interval? Yes!
 
   WEATHER DATA 
