@@ -84,11 +84,11 @@
 
 ### Data exploration
 
-I checked for gaps in the log by creating a column that pulls the time stamp of
-the subsequent measurement (rec_after). Another column creates an interval between
-the timestamp of the measurement and the timestamp of the subsequent measurement 
-(intrvl). A quick summary shows that the duration of these intervals is all 1 minute,
-verifying that there are no gaps. 
-
-Other steps in this stage included plotting all the HOBO measurements from my HOBO
-and generating density plots for temperature and humidity.
+      I checked for gaps in the log by creating a column that pulls the time stamp of
+      the subsequent measurement (rec_after). Another column creates an interval between
+      the timestamp of the measurement and the timestamp of the subsequent measurement 
+      (intrvl). A quick summary shows that the duration of these intervals is all 1 minute,
+      verifying that there are no gaps. 
+      
+      Other steps in this stage included plotting all the HOBO measurements from my HOBO
+      and generating density plots for temperature and humidity.
