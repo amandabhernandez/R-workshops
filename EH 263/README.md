@@ -84,14 +84,13 @@
 
 ### Data exploration
 
-      I checked for gaps in the log by creating a column that pulls the time stamp of
-      the subsequent measurement (rec_after). Another column creates an interval between
-      the timestamp of the measurement and the timestamp of the subsequent measurement 
-      (intrvl). A quick summary shows that the duration of these intervals is all 1 minute,
-      verifying that there are no gaps. 
-      
-      Other steps in this stage included plotting all the HOBO measurements from my HOBO
-      and generating density plots for temperature and humidity.
+      I checked for gaps in the log by creating a column that pulls the time 
+      stamp of the subsequent measurement (rec_after). Another column creates an 
+      interval between the timestamp of the measurement and the timestamp of the 
+      subsequent measurement (intrvl). A quick summary shows that the duration of 
+      these intervals is all 1 minute,verifying that there are no gaps. Other 
+      steps in this stage included plotting all the HOBO measurements from my 
+      HOBO and generating density plots for temperature and humidity.
       
       
       
@@ -113,22 +112,28 @@
       
       metric == either Temperature (F) or Relative Humitidy (%)
       
-      indoor_value == the measurement provided by the HOBO for that specific metric at that date_time
+      indoor_value == the measurement provided by the HOBO for that specific 
+      metric at that date_time
       
-      outdoor_value == the measurement retreived from wunderground for outdoor ambient temperature and        RH
+      outdoor_value == the measurement retreived from wunderground for outdoor 
+      ambient temperature and RH
       
-      activity_status == a flag indiciating whether or not a logged activity took place when the HOBO         measurement was recorded
+      activity_status == a flag indiciating whether or not a logged activity 
+      took place when the HOBO measurement was recorded
       
       event_no == a unique ID for each activity/event
       
-      cooking == a binary indicator of whether or not a cooking event was taking place 
+      cooking == a binary indicator of whether or not a cooking event was 
+      taking place 
       
       kettle == a binary indicator of whether or not the kettle was on
       
-      shower == a binary indicator of whether or not someone was showering while an event was occurring
+      shower == a binary indicator of whether or not someone was showering while 
+      an event was occurring
       
       occupants == the number of occupants during an activity/event 
       
       other == field notes during activity logging
       
-      intrvl == a interval variable that is bounded by the start and end time of the event/activity  
+      intrvl == a interval variable that is bounded by the start and end time 
+      of the event/activity  
